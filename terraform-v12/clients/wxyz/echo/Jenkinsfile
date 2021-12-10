@@ -10,7 +10,7 @@ pipeline {
   agent any
   environment {
   tf='/var/lib/jenkins/tools/terraform01228/terraform'
-  dir='clients/pgat/echo'
+  dir='clients/wxyz/echo'
   knife = '/opt/chefdk/embedded/bin/knife'
   }
 
