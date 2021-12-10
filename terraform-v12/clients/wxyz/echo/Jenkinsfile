@@ -1,0 +1,122 @@
+#!/usr/bin/env groovy
+// terraform build pipeline
+
+def GIT_COMMIT = ''
+def GIT_NAME = ''
+def GIT_EMAIL = ''
+//def BUILD = ''
+
+pipeline {
+  agent any
+  environment {
+  tf='/var/lib/jenkins/tools/terraform01228/terraform'
+  dir='clients/pgat/echo'
+  knife = '/opt/chefdk/embedded/bin/knife'
+  }
+
+  parameters {
+   choice(name: 'ExecuteAction', choices: ['plan','apply','destroy'],
+   description: 'Which terraform action to take')
+  }
+
+  stages {
+
+    stage('set some environment details') {
+      steps {
+        script {
+          sh 'chef -v'
+          GIT_COMMIT = sh(returnStdout: true, script: 'git log --format="%H" -n 1')
+          GIT_NAME = sh(returnStdout: true, script: "git --no-pager show -s --format='%an' $GIT_COMMIT")
+          GIT_EMAIL = sh(returnStdout: true, script: "git --no-pager show -s --format='%ae' $GIT_COMMIT")
+        }
+        echo "${GIT_COMMIT}"
+        echo "${GIT_NAME}"
+        echo "${GIT_EMAIL}"
+        echo env.BRANCH_NAME
+        //echo "${BUILD}"
+      }
+    }
+
+    stage('initialize modules') {
+      steps {
+          sh 'cd $dir && $tf init -input=false'
+      }
+    }
+
+    stage('terraform plan') {
+      when {
+        environment name: 'ExecuteAction', value: 'plan'
+        }
+      steps {
+          sh 'cd $dir && $tf plan'
+      }
+    }
+
+    stage('terraform apply') {
+      when {
+        environment name: 'ExecuteAction', value: 'apply'
+        }
+      steps {
+          sh 'cd $dir && $tf apply -auto-approve'
+      }
+    }
+
+    stage('terraform destroy') {
+      when {
+        environment name: 'ExecuteAction', value: 'destroy'
+        }
+      steps {
+          sh 'cd $dir && $tf destroy -auto-approve'
+      }
+    }
+  }
+
+    post {
+      always {
+        //slack it
+        notifyBuild(currentBuild.currentResult)
+        //email it
+        //mail to: "${GIT_EMAIL}",
+        //subject: "Status of pipeline: ${currentBuild.fullProjectName}",
+        //body: "The build ${currentBuild.fullDisplayName} at ${env.BUILD_URL} has result ${currentBuild.currentResult}"
+      }
+      //      failure{
+      //         echo "Build failed"
+      //         mail body: 'some text', subject: 'Build failed!',
+      // to: "${GIT_EMAIL}"
+      //       }
+      //       success {
+      //         echo "Build succeeded"
+      //         //archiveArtifacts '**/*'
+      //       } 
+    }
+
+}
+
+def notifyBuild(String buildStatus = 'STARTED') {
+  // build status of null means successful
+  buildStatus =  buildStatus ?: 'SUCCESS'
+  
+  // Default values
+  def colorName = 'RED'
+  def colorCode = '#FF0000'
+  def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'"
+  def summary = "${subject} (${env.BUILD_URL})"
+  def details = """<p>STARTED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+  <p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>"""
+  
+  // Override default values based on build status
+  if (buildStatus == 'STARTED') {
+    color = 'YELLOW'
+    colorCode = '#FFFF00'
+    } else if (buildStatus == 'SUCCESS') {
+      color = 'GREEN'
+      colorCode = '#00FF00'
+      } else {
+        color = 'RED'
+        colorCode = '#FF0000'
+      }
+      
+      // Send notifications
+      slackSend (color: colorCode, message: summary)
+}
